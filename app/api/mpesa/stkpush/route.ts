@@ -127,11 +127,13 @@ export async function POST(request: Request) {
       data: stkData,
     });
   } catch (error) {
+    console.error("STK PUSH ERROR:", error);
+
     return NextResponse.json(
       {
         success: false,
         message: "An error occurred while processing STK Push.",
-        error: String(error),
+        error: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
     );
