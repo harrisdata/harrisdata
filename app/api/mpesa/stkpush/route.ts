@@ -54,7 +54,22 @@ export async function POST(request: Request) {
       }
     );
 
-    const tokenData = await tokenResponse.json();
+    const tokenText = await tokenResponse.text();
+
+    let tokenData: any = {};
+
+    try {
+      tokenData = tokenText ? JSON.parse(tokenText) : {};
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Daraja returned an invalid token response.",
+          details: tokenText || "Empty response from Daraja.",
+        },
+        { status: 502 }
+      );
+    }
 
     if (!tokenResponse.ok || !tokenData.access_token) {
       return NextResponse.json(
@@ -108,7 +123,22 @@ export async function POST(request: Request) {
       }
     );
 
-    const stkData = await stkResponse.json();
+    const stkText = await stkResponse.text();
+
+    let stkData: any = {};
+
+    try {
+      stkData = stkText ? JSON.parse(stkText) : {};
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Daraja returned an invalid STK Push response.",
+          details: stkText || "Empty response from Daraja.",
+        },
+        { status: 502 }
+      );
+    }
 
     if (!stkResponse.ok) {
       return NextResponse.json(
