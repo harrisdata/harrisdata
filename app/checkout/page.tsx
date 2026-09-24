@@ -1,9 +1,9 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 
-export default function CheckoutPage() {
+function CheckoutContent() {
   const searchParams = useSearchParams();
 
   const packageName = searchParams.get("package") || "1GB";
@@ -59,7 +59,6 @@ export default function CheckoutPage() {
   return (
     <main className="min-h-screen bg-gray-100 p-6 text-gray-900">
       <div className="mx-auto max-w-md rounded-xl bg-white p-6 shadow-lg">
-
         <h1 className="mb-2 text-3xl font-bold text-gray-900">
           Harris Data Deals
         </h1>
@@ -115,8 +114,15 @@ export default function CheckoutPage() {
         <p className="mt-4 text-center text-sm text-gray-500">
           You will receive an M-PESA payment prompt on your phone.
         </p>
-
       </div>
     </main>
+  );
+}
+
+export default function CheckoutPage() {
+  return (
+    <Suspense fallback={<div>Loading checkout...</div>}>
+      <CheckoutContent />
+    </Suspense>
   );
 }
