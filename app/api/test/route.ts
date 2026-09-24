@@ -1,4 +1,3 @@
-```ts
 import { NextResponse } from "next/server";
 
 export async function POST() {
@@ -7,4 +6,3 @@ export async function POST() {
     message: "Harris Data Deals M-PESA STK Push endpoint is working!",
   });
 }
-```
