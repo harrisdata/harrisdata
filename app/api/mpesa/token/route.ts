@@ -25,17 +25,37 @@ export async function GET() {
         method: "GET",
         headers: {
           Authorization: `Basic ${credentials}`,
+          Accept: "application/json",
         },
+        cache: "no-store",
       }
     );
 
-    const data = await response.json();
+    const responseText = await response.text();
+
+    let data: any = {};
+
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Daraja returned a non-JSON response.",
+          daraja_status: response.status,
+          daraja_status_text: response.statusText,
+          response_body: responseText || "(empty response)",
+        },
+        { status: 502 }
+      );
+    }
 
     if (!response.ok) {
       return NextResponse.json(
         {
           success: false,
           message: "Daraja authentication failed.",
+          daraja_status: response.status,
           details: data,
         },
         { status: response.status }
@@ -48,11 +68,13 @@ export async function GET() {
       token_received: !!data.access_token,
     });
   } catch (error) {
+    console.error("MPESA TOKEN ERROR:", error);
+
     return NextResponse.json(
       {
         success: false,
         message: "Could not connect to Daraja.",
-        error: String(error),
+        error: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
     );
