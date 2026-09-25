@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
+import { sql } from "@/lib/db";
 
 export async function POST(request: Request) {
+  let orderId: string | null = null;
+
   try {
     const body = await request.json();
 
     const phone = body.phone;
-    const amount = body.amount;
+    const amount = Number(body.amount);
+    const packageName = body.package || "Harris Data Package";
+    const validity = body.validity || "";
 
     if (!phone || !amount) {
       return NextResponse.json(
@@ -14,6 +19,50 @@ export async function POST(request: Request) {
           message: "Phone number and amount are required.",
         },
         { status: 400 }
+      );
+    }
+
+    if (amount <= 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Amount must be greater than zero.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /*
+     * Create the order first.
+     * It starts as PENDING until Safaricom sends the callback.
+     */
+    const orders = await sql`
+      INSERT INTO orders (
+        phone,
+        package_name,
+        validity,
+        amount,
+        status
+      )
+      VALUES (
+        ${phone},
+        ${packageName},
+        ${validity},
+        ${amount},
+        'PENDING'
+      )
+      RETURNING id
+    `;
+
+    orderId = orders[0]?.id || null;
+
+    if (!orderId) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Could not create the payment order.",
+        },
+        { status: 500 }
       );
     }
 
@@ -30,6 +79,15 @@ export async function POST(request: Request) {
       !passkey ||
       !callbackUrl
     ) {
+      await sql`
+        UPDATE orders
+        SET
+          status = 'FAILED',
+          result_desc = 'M-PESA configuration is incomplete.',
+          updated_at = NOW()
+        WHERE id = ${orderId}
+      `;
+
       return NextResponse.json(
         {
           success: false,
@@ -61,6 +119,15 @@ export async function POST(request: Request) {
     try {
       tokenData = tokenText ? JSON.parse(tokenText) : {};
     } catch {
+      await sql`
+        UPDATE orders
+        SET
+          status = 'FAILED',
+          result_desc = 'Daraja returned an invalid token response.',
+          updated_at = NOW()
+        WHERE id = ${orderId}
+      `;
+
       return NextResponse.json(
         {
           success: false,
@@ -72,6 +139,15 @@ export async function POST(request: Request) {
     }
 
     if (!tokenResponse.ok || !tokenData.access_token) {
+      await sql`
+        UPDATE orders
+        SET
+          status = 'FAILED',
+          result_desc = 'Could not obtain Daraja access token.',
+          updated_at = NOW()
+        WHERE id = ${orderId}
+      `;
+
       return NextResponse.json(
         {
           success: false,
@@ -112,7 +188,7 @@ export async function POST(request: Request) {
           Password: password,
           Timestamp: timestamp,
           TransactionType: "CustomerPayBillOnline",
-          Amount: Number(amount),
+          Amount: amount,
           PartyA: phone,
           PartyB: shortcode,
           PhoneNumber: phone,
@@ -130,6 +206,15 @@ export async function POST(request: Request) {
     try {
       stkData = stkText ? JSON.parse(stkText) : {};
     } catch {
+      await sql`
+        UPDATE orders
+        SET
+          status = 'FAILED',
+          result_desc = 'Daraja returned an invalid STK response.',
+          updated_at = NOW()
+        WHERE id = ${orderId}
+      `;
+
       return NextResponse.json(
         {
           success: false,
@@ -141,6 +226,16 @@ export async function POST(request: Request) {
     }
 
     if (!stkResponse.ok) {
+      await sql`
+        UPDATE orders
+        SET
+          status = 'FAILED',
+          result_code = ${Number(stkData.ResponseCode ?? -1)},
+          result_desc = ${stkData.errorMessage || stkData.ResponseDescription || "STK Push request failed."},
+          updated_at = NOW()
+        WHERE id = ${orderId}
+      `;
+
       return NextResponse.json(
         {
           success: false,
@@ -151,13 +246,41 @@ export async function POST(request: Request) {
       );
     }
 
+    // Save Safaricom's request IDs against this order.
+    await sql`
+      UPDATE orders
+      SET
+        checkout_request_id = ${stkData.CheckoutRequestID || null},
+        merchant_request_id = ${stkData.MerchantRequestID || null},
+        result_code = ${stkData.ResponseCode != null ? Number(stkData.ResponseCode) : null},
+        result_desc = ${stkData.ResponseDescription || null},
+        updated_at = NOW()
+      WHERE id = ${orderId}
+    `;
+
     return NextResponse.json({
       success: true,
       message: "STK Push sent successfully.",
+      orderId,
       data: stkData,
     });
   } catch (error) {
     console.error("STK PUSH ERROR:", error);
+
+    if (orderId) {
+      try {
+        await sql`
+          UPDATE orders
+          SET
+            status = 'FAILED',
+            result_desc = ${error instanceof Error ? error.message : String(error)},
+            updated_at = NOW()
+          WHERE id = ${orderId}
+        `;
+      } catch (dbError) {
+        console.error("ORDER UPDATE ERROR:", dbError);
+      }
+    }
 
     return NextResponse.json(
       {
